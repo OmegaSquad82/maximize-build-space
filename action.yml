@@ -23,7 +23,7 @@ inputs:
       You should prefer adjusting root-reserve-mb/temp-reserve-mb over using this option.
     required: false
     default: 'false'
-  compressed-btrfs:
+  btrfs-compression:
     description: |
       Will re-use the overprovisioned sparse ext4 file (TODO: fix it) and re-create it as btrfs, then will have critical
       container-related paths mounted as subvolumes with active zstd:3 compression to conserve on more disk space,
@@ -192,7 +192,7 @@ runs:
           fi
           sudo mount "/dev/mapper/${VG_NAME}-buildlv" "${BUILD_MOUNT_PATH}"
 
-          if [[ ${{ inputs.overprovision-lvm }} == 'true' && ${{ inputs.compressed-btrfs }} == 'true' ]]; then
+          if [[ ${{ inputs.overprovision-lvm }} == 'true' && ${{ inputs.btrfs-compression }} == 'true' ]]; then
               sudo umount "/dev/mapper/${VG_NAME}-buildlv"
               sudo mkdir -p /btrfsrootvol "${HOME}"/.local/share/containers /var/lib/containers /sysroot
               

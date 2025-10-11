@@ -187,38 +187,38 @@ runs:
           sudo lvcreate -l 100%FREE -n buildlv "${VG_NAME}"
           if [[ ${{ inputs.overprovision-lvm }} == 'true' ]]; then
             sudo mkfs.ext4 -m0 "/dev/mapper/${VG_NAME}-buildlv"
-
-            if [[ ${{ inputs.overprovision-lvm }} == 'true' ]]; then
-                sudo umount "/dev/mapper/${VG_NAME}-buildlv"
-                sudo mkdir -p /btrfsrootvol "${HOME}"/.local/share/containers /var/lib/containers /sysroot
-
-                # https://github.com/radxa/armbian-compile-action/commit/82fe40188f2f3b4dbd4ae8fb9c64f49f117085c7
-                sudo mkfs.btrfs -L "buildlv" -M -m single --force "/dev/mapper/${VG_NAME}-buildlv"
-                sudo mount -o defaults,noatime,compress=zstd:1,discard=async "/dev/mapper/${VG_NAME}-buildlv" /btrfsrootvol
-
-                cd /btrfsrootvol
-                for subvolume in containers homstorage ostreeroot mywrkspace; do
-                  sudo btrfs subvolume create "$subvolume"
-                done
-
-                # https://github.com/containers/podman/blob/main/troubleshooting.md#11-changing-the-location-of-the-graphroot-leads-to-permission-denied
-                sudo mount -o subvol=containers,noatime,compress=zstd:1,discard=async "/dev/mapper/${VG_NAME}-buildlv" /var/lib/containers
-                sudo mount -o subvol=homstorage,noatime,compress=zstd:1,discard=async "/dev/mapper/${VG_NAME}-buildlv" "${HOME}"/.local/share/containers
-
-                sudo mount -o subvol=ostreeroot,noatime,compress=zstd:1,discard=async "/dev/mapper/${VG_NAME}-buildlv" /sysroot
-                sudo mount -o subvol=mywrkspace,noatime,compress=zstd:1,discard=async "/dev/mapper/${VG_NAME}-buildlv" "${GITHUB_WORKSPACE}"
-
-                # https://github.com/containers/podman/issues/5049#issuecomment-1348628646
-                sudo chown -R "$HOMESPACE_OWNER" "${HOME}"/.local/share/containers /run/user/"$UID"
-
-                sudo mount | grep btrfs
-                lsblk
-
-              fi
           else
             sudo mkfs.ext4 -Enodiscard -m0 "/dev/mapper/${VG_NAME}-buildlv"
           fi
           sudo mount "/dev/mapper/${VG_NAME}-buildlv" "${BUILD_MOUNT_PATH}"
+
+          if [[ ${{ inputs.overprovision-lvm }} == 'true' && ${{ inputs.compressed-btrfs }} == 'true' ]]; then
+              sudo umount "/dev/mapper/${VG_NAME}-buildlv"
+              sudo mkdir -p /btrfsrootvol "${HOME}"/.local/share/containers /var/lib/containers /sysroot
+              
+              # https://github.com/radxa/armbian-compile-action/commit/82fe40188f2f3b4dbd4ae8fb9c64f49f117085c7
+              sudo mkfs.btrfs -L "buildlv" -M -m single --force "/dev/mapper/${VG_NAME}-buildlv"
+              sudo mount -o defaults,noatime,compress=zstd:1,discard=async "/dev/mapper/${VG_NAME}-buildlv" /btrfsrootvol
+              
+              cd /btrfsrootvol
+              for subvolume in containers homstorage ostreeroot mywrkspace; do
+                sudo btrfs subvolume create "$subvolume"
+              done
+              
+              # https://github.com/containers/podman/blob/main/troubleshooting.md#11-changing-the-location-of-the-graphroot-leads-to-permission-denied
+              sudo mount -o subvol=containers,noatime,compress=zstd:3,discard=async "/dev/mapper/${VG_NAME}-buildlv" /var/lib/containers
+              sudo mount -o subvol=homstorage,noatime,compress=zstd:3,discard=async "/dev/mapper/${VG_NAME}-buildlv" "${HOME}"/.local/share/containers
+              
+              sudo mount -o subvol=ostreeroot,noatime,compress=zstd:3,discard=async "/dev/mapper/${VG_NAME}-buildlv" /sysroot
+              sudo mount -o subvol=mywrkspace,noatime,compress=zstd:3,discard=async "/dev/mapper/${VG_NAME}-buildlv" "${GITHUB_WORKSPACE}"
+              
+              # https://github.com/containers/podman/issues/5049#issuecomment-1348628646
+              sudo chown -R "${HOMESPACE_OWNER}" "${HOME}"/.local/share/containers /run/user/"$UID"
+              
+              sudo mount | grep btrfs
+              lsblk
+            fi
+          
           sudo chown -R "${{ inputs.build-mount-path-ownership }}" "${BUILD_MOUNT_PATH}"
 
           # if build mount path is a parent of $GITHUB_WORKSPACE, and has been deleted, recreate it

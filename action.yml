@@ -25,9 +25,9 @@ inputs:
     default: 'false'
   btrfs-compression:
     description: |
-      Will re-use the overprovisioned sparse ext4 file (TODO: fix it) and re-create it as btrfs, then will have critical
-      container-related paths mounted as subvolumes with active zstd:3 compression to conserve on more disk space,
-      specifically "/var/lib/containers", "${HOME}/.local/share/containers", "/sysroot", "${GITHUB_WORKSPACE}".
+      Will re-use and re-create the main LVM image file as BTRFS, then will have critical Podman and bootc/rpm-ostree paths
+      mounted as subvolumes with default zstd:3 compression level to conserve on more disk space, specifically:
+      "/var/lib/containers", "${HOME}/.local/share/containers", "/sysroot", "${GITHUB_WORKSPACE}".
     required: false
     default: 'false'
   build-mount-path:

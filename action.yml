@@ -207,13 +207,7 @@ runs:
               
               # https://github.com/containers/podman/blob/main/troubleshooting.md#11-changing-the-location-of-the-graphroot-leads-to-permission-denied
               sudo mount -o subvol=containers,noatime,discard=async "/dev/mapper/${VG_NAME}-buildlv" /var/lib/containers
-              
-              sudo mkdir -p /var/lib/docker.tmp
-              sudo mv /var/lib/docker/* /var/lib/docker.tmp/
-              sudo mount -o subvol=dockerstor,noatime,discard=async "/dev/mapper/${VG_NAME}-buildlv" /var/lib/docker
-              sudo mv /var/lib/docker.tmp/* /var/lib/docker/
-              sudo rmdir /var/lib/docker.tmp
-              
+              sudo mount -o subvol=dockerstor,noatime,discard=async "/dev/mapper/${VG_NAME}-buildlv" -m /var/lib/docker
               sudo mount -o subvol=homstorage,noatime,discard=async "/dev/mapper/${VG_NAME}-buildlv" "${HOME}"/.local/share/containers
               sudo mount -o subvol=ostreeroot,noatime,discard=async "/dev/mapper/${VG_NAME}-buildlv" /sysroot
               sudo mount -o subvol=mywrkspace,noatime,discard=async "/dev/mapper/${VG_NAME}-buildlv" "${GITHUB_WORKSPACE}"

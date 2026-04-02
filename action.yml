@@ -179,7 +179,7 @@ runs:
             sudo pvcreate -f "${TMP_LOOP_DEV}"
           fi
 
-          if [[ -e "${TMP_LOOP_DEV}" && -e "${ROOT_LOOP_DEV}" ]]; then
+          if [[ -f "${{ inputs.pv-loop-path }}" && -f "${{ inputs.tmp-pv-loop-path }}" ]]; then
             # create volume group from these pvs
             sudo vgcreate "${VG_NAME}" "${TMP_LOOP_DEV}" "${ROOT_LOOP_DEV}"
 

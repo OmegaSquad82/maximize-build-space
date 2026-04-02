@@ -154,71 +154,77 @@ runs:
             sudo rm -f /mnt/swapfile
           fi
 
-          echo "Creating LVM Volume."
-          echo "  Creating LVM PV on root fs."
-          # create loop pv image on root fs
-          ROOT_RESERVE_KB=$(expr ${{ inputs.root-reserve-mb }} \* 1024)
-          ROOT_FREE_KB=$(df --block-size=1024 --output=avail / | tail -1)
-          ROOT_LVM_SIZE_KB=$(expr $ROOT_FREE_KB - $ROOT_RESERVE_KB)
-          ROOT_LVM_SIZE_BYTES=$(expr $ROOT_LVM_SIZE_KB \* 1024)
-          sudo touch "${{ inputs.pv-loop-path }}" && sudo fallocate -z -l "${ROOT_LVM_SIZE_BYTES}" "${{ inputs.pv-loop-path }}"
-          export ROOT_LOOP_DEV=$(sudo losetup --find --show "${{ inputs.pv-loop-path }}")
-          sudo pvcreate -f "${ROOT_LOOP_DEV}"
-
-          # create pv on temp disk
-          echo "  Creating LVM PV on temp fs."
-          TMP_RESERVE_KB=$(expr ${{ inputs.temp-reserve-mb }} \* 1024)
-          TMP_FREE_KB=$(df --block-size=1024 --output=avail /mnt | tail -1)
-          TMP_LVM_SIZE_KB=$(expr $TMP_FREE_KB - $TMP_RESERVE_KB)
-          TMP_LVM_SIZE_BYTES=$(expr $TMP_LVM_SIZE_KB \* 1024)
-          sudo touch "${{ inputs.tmp-pv-loop-path }}" && sudo fallocate -z -l "${TMP_LVM_SIZE_BYTES}" "${{ inputs.tmp-pv-loop-path }}"
-          export TMP_LOOP_DEV=$(sudo losetup --find --show "${{ inputs.tmp-pv-loop-path }}")
-          sudo pvcreate -f "${TMP_LOOP_DEV}"
-
-          # create volume group from these pvs
-          sudo vgcreate "${VG_NAME}" "${TMP_LOOP_DEV}" "${ROOT_LOOP_DEV}"
-
-          echo "Recreating swap"
-          # create and activate swap
-          sudo lvcreate -L "${{ inputs.swap-size-mb }}M" -n swap "${VG_NAME}"
-          sudo mkswap "/dev/mapper/${VG_NAME}-swap"
-          sudo swapon "/dev/mapper/${VG_NAME}-swap"
-
-          echo "Creating build volume"
-          # create and mount build volume
-          sudo lvcreate -l 100%FREE -n buildlv "${VG_NAME}"
-          if [[ ${{ inputs.overprovision-lvm }} == 'true' ]]; then
-            sudo mkfs.ext4 -m0 "/dev/mapper/${VG_NAME}-buildlv"
-          else
-            sudo mkfs.ext4 -Enodiscard -m0 "/dev/mapper/${VG_NAME}-buildlv"
+          if [[ -f "${{ inputs.pv-loop-path }}" ]]; then
+            echo "Creating LVM Volume."
+            echo "  Creating LVM PV on root fs."
+            # create loop pv image on root fs
+            ROOT_RESERVE_KB=$(expr ${{ inputs.root-reserve-mb }} \* 1024)
+            ROOT_FREE_KB=$(df --block-size=1024 --output=avail / | tail -1)
+            ROOT_LVM_SIZE_KB=$(expr $ROOT_FREE_KB - $ROOT_RESERVE_KB)
+            ROOT_LVM_SIZE_BYTES=$(expr $ROOT_LVM_SIZE_KB \* 1024)
+            sudo touch "${{ inputs.pv-loop-path }}" && sudo fallocate -z -l "${ROOT_LVM_SIZE_BYTES}" "${{ inputs.pv-loop-path }}"
+            export ROOT_LOOP_DEV=$(sudo losetup --find --show "${{ inputs.pv-loop-path }}")
+            sudo pvcreate -f "${ROOT_LOOP_DEV}"
           fi
-          sudo mount "/dev/mapper/${VG_NAME}-buildlv" "${BUILD_MOUNT_PATH}"
+          
+          if [[ -f "${{ inputs.tmp-pv-loop-path }}" ]]; then
+            # create pv on temp disk
+            echo "  Creating LVM PV on temp fs."
+            TMP_RESERVE_KB=$(expr ${{ inputs.temp-reserve-mb }} \* 1024)
+            TMP_FREE_KB=$(df --block-size=1024 --output=avail /mnt | tail -1)
+            TMP_LVM_SIZE_KB=$(expr $TMP_FREE_KB - $TMP_RESERVE_KB)
+            TMP_LVM_SIZE_BYTES=$(expr $TMP_LVM_SIZE_KB \* 1024)
+            sudo touch "${{ inputs.tmp-pv-loop-path }}" && sudo fallocate -z -l "${TMP_LVM_SIZE_BYTES}" "${{ inputs.tmp-pv-loop-path }}"
+            export TMP_LOOP_DEV=$(sudo losetup --find --show "${{ inputs.tmp-pv-loop-path }}")
+            sudo pvcreate -f "${TMP_LOOP_DEV}"
+          fi
 
-          if [[ ${{ inputs.btrfs-compression }} == 'true' ]]; then
-              sudo umount "/dev/mapper/${VG_NAME}-buildlv"
-              sudo mkdir -p /btrfsrootvol "${HOME}"/.local/share/containers /var/lib/containers /sysroot
-              
-              # https://github.com/radxa/armbian-compile-action/commit/82fe40188f2f3b4dbd4ae8fb9c64f49f117085c7
-              sudo mkfs.btrfs -L "buildlv" -M -m single --force "/dev/mapper/${VG_NAME}-buildlv"
-              sudo mount -o defaults,noatime,compress=zstd:3,discard=async "/dev/mapper/${VG_NAME}-buildlv" /btrfsrootvol
-              
-              cd /btrfsrootvol
-              for subvolume in containers dockerstor homstorage ostreeroot mywrkspace; do
-                sudo btrfs subvolume create "$subvolume"
-              done
-              
-              # https://github.com/containers/podman/blob/main/troubleshooting.md#11-changing-the-location-of-the-graphroot-leads-to-permission-denied
-              sudo mount -o subvol=containers,noatime,discard=async "/dev/mapper/${VG_NAME}-buildlv" /var/lib/containers
-              sudo mount -o subvol=dockerstor,noatime,discard=async "/dev/mapper/${VG_NAME}-buildlv" /var/lib/docker && sudo systemctl restart docker
-              sudo mount -o subvol=homstorage,noatime,discard=async "/dev/mapper/${VG_NAME}-buildlv" "${HOME}"/.local/share/containers
-              sudo mount -o subvol=ostreeroot,noatime,discard=async "/dev/mapper/${VG_NAME}-buildlv" /sysroot
-              sudo mount -o subvol=mywrkspace,noatime,discard=async "/dev/mapper/${VG_NAME}-buildlv" "${GITHUB_WORKSPACE}"
-              
-              # https://github.com/containers/podman/issues/5049#issuecomment-1348628646
-              sudo chown -R "${HOMESPACE_OWNER}" "${HOME}"/.local/share/containers /run/user/"$UID"
-              
-              sudo mount | grep btrfs
+          if [[ -e "${TMP_LOOP_DEV}" && -e "${ROOT_LOOP_DEV}" ]]; then
+            # create volume group from these pvs
+            sudo vgcreate "${VG_NAME}" "${TMP_LOOP_DEV}" "${ROOT_LOOP_DEV}"
+
+            echo "Recreating swap"
+            # create and activate swap
+            sudo lvcreate -L "${{ inputs.swap-size-mb }}M" -n swap "${VG_NAME}"
+            sudo mkswap "/dev/mapper/${VG_NAME}-swap"
+            sudo swapon "/dev/mapper/${VG_NAME}-swap"
+
+            echo "Creating build volume"
+            # create and mount build volume
+            sudo lvcreate -l 100%FREE -n buildlv "${VG_NAME}"
+            if [[ ${{ inputs.overprovision-lvm }} == 'true' ]]; then
+              sudo mkfs.ext4 -m0 "/dev/mapper/${VG_NAME}-buildlv"
+            else
+              sudo mkfs.ext4 -Enodiscard -m0 "/dev/mapper/${VG_NAME}-buildlv"
             fi
+            sudo mount "/dev/mapper/${VG_NAME}-buildlv" "${BUILD_MOUNT_PATH}"
+
+            if [[ ${{ inputs.btrfs-compression }} == 'true' ]]; then
+                sudo umount "/dev/mapper/${VG_NAME}-buildlv"
+                sudo mkdir -p /btrfsrootvol "${HOME}"/.local/share/containers /var/lib/containers /sysroot
+                
+                # https://github.com/radxa/armbian-compile-action/commit/82fe40188f2f3b4dbd4ae8fb9c64f49f117085c7
+                sudo mkfs.btrfs -L "buildlv" -M -m single --force "/dev/mapper/${VG_NAME}-buildlv"
+                sudo mount -o defaults,noatime,compress=zstd:3,discard=async "/dev/mapper/${VG_NAME}-buildlv" /btrfsrootvol
+                
+                cd /btrfsrootvol
+                for subvolume in containers dockerstor homstorage ostreeroot mywrkspace; do
+                  sudo btrfs subvolume create "$subvolume"
+                done
+                
+                # https://github.com/containers/podman/blob/main/troubleshooting.md#11-changing-the-location-of-the-graphroot-leads-to-permission-denied
+                sudo mount -o subvol=containers,noatime,discard=async "/dev/mapper/${VG_NAME}-buildlv" /var/lib/containers
+                sudo mount -o subvol=dockerstor,noatime,discard=async "/dev/mapper/${VG_NAME}-buildlv" /var/lib/docker && sudo systemctl restart docker
+                sudo mount -o subvol=homstorage,noatime,discard=async "/dev/mapper/${VG_NAME}-buildlv" "${HOME}"/.local/share/containers
+                sudo mount -o subvol=ostreeroot,noatime,discard=async "/dev/mapper/${VG_NAME}-buildlv" /sysroot
+                sudo mount -o subvol=mywrkspace,noatime,discard=async "/dev/mapper/${VG_NAME}-buildlv" "${GITHUB_WORKSPACE}"
+                
+                # https://github.com/containers/podman/issues/5049#issuecomment-1348628646
+                sudo chown -R "${HOMESPACE_OWNER}" "${HOME}"/.local/share/containers /run/user/"$UID"
+                
+                sudo mount | grep btrfs
+              fi
+          fi
           
           sudo chown -R "${{ inputs.build-mount-path-ownership }}" "${BUILD_MOUNT_PATH}"
 
